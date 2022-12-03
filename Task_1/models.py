@@ -4,9 +4,21 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.metrics import confusion_matrix, accuracy_score, classification_report
 import numpy as np
-from xgboost import XGBClassifier
+# from xgboost import XGBClassifier
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.optimizers import Adam
+from sklearn.utils import shuffle
+from tabtransformertf.utils.preprocessing import df_to_dataset, build_categorical_prep
+from tabtransformertf.utils.preprocessing import build_numerical_prep
 
-path = "/content/drive/MyDrive/Colab Notebooks/College/data-science comp/"
+import tensorflow_addons as tfa
+import tensorflow as tf
+from keras.callbacks import ModelCheckpoint
+from sklearn.metrics import average_precision_score, roc_auc_score
+
+# path = "/content/drive/MyDrive/Colab Notebooks/College/data-science comp/"
+path = ""
 
 # Read the data
 train_data = pd.read_pickle(path + "train_task1.pkl")
@@ -132,3 +144,69 @@ def XGboost(train_data, test_data):
     return xgb_random
 
 
+
+
+# Neural Network
+def NeuralNet(train_data, test_data, out_file):
+    # Split the data
+    train_data = shuffle(train_data)
+    X_train = train_data.drop(['label'], axis=1)
+    y_train = train_data['label']
+    X_test = test_data.drop(['label'], axis=1)
+    y_test = test_data['label']
+
+    # Scale the data
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
+    # Create the model
+    model = Sequential()
+    model.add(Dense(128, input_dim=X_train.shape[1], activation='gelu'))
+    model.add(Dense(64, activation='gelu'))
+    model.add(Dense(32, activation='gelu'))
+    model.add(Dense(16, activation='gelu'))
+    model.add(Dense(1, activation='sigmoid'))
+
+
+    # Compile model
+    LEARNING_RATE = 0.0001
+    WEIGHT_DECAY = 0.0001
+    NUM_EPOCHS = 1000
+
+    optimizer = tfa.optimizers.AdamW(
+        learning_rate=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+    )
+
+
+    # Compile the model
+    model.compile(
+        optimizer=optimizer,
+        loss=tf.keras.losses.BinaryCrossentropy(),
+        metrics=[tf.keras.metrics.AUC(name="PR AUC", curve='PR')],
+    )
+    checkpoint = ModelCheckpoint(
+        out_file, monitor="val_PR AUC", verbose=1, save_best_only=True, mode="max"
+    )
+    early = tf.keras.callbacks.EarlyStopping(monitor="val_PR AUC", mode="max", patience=10, restore_best_weights=True)
+    callback_list = [checkpoint, early]
+
+    # Fit the model
+    model.fit(X_train, y_train, epochs=NUM_EPOCHS, batch_size=32, callbacks=callback_list, validation_data=(X_test, y_test))
+
+    # Predict the test data
+    y_pred = model.predict(X_test)
+
+    print(f"PR AUC: {average_precision_score(y_test, y_pred.ravel())}")
+    print(f"ROC AUC: {roc_auc_score(y_test, y_pred.ravel())}")
+    return model
+
+
+
+
+
+if __name__ == "__main__":
+    model_num = 1
+    for data in train:
+        NeuralNetCls = NeuralNet(data, test_data, f"./models/model{model_num}")
+        model_num += 1
