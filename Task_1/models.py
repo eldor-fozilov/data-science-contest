@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings('ignore')
+
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
@@ -6,7 +9,7 @@ from sklearn.metrics import confusion_matrix, accuracy_score, classification_rep
 import numpy as np
 # from xgboost import XGBClassifier
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropout, AveragePooling1D, BatchNormalization
 from tensorflow.keras.optimizers import Adam
 from sklearn.utils import shuffle
 from tabtransformertf.utils.preprocessing import df_to_dataset, build_categorical_prep
@@ -24,6 +27,31 @@ path = ""
 train_data = pd.read_pickle(path + "train_task1.pkl")
 test_data = pd.read_pickle(path + "test_task1.pkl")
 
+train_data["total logins"] = 0
+test_data["total logins"] = 0
+train_data["total logins with transfer"] = 0
+test_data["total logins with transfer"] = 0
+train_data["total logins duration"] = 0
+test_data["total logins duration"] = 0
+
+for col in train_data.columns:
+    if "c_" in col:
+        train_data["total logins"] += train_data[col]
+        test_data["total logins"] += test_data[col]
+    
+    elif "s_" in col: 
+        train_data["total logins with transfer"] += train_data[col]
+        test_data["total logins with transfer"] += test_data[col]
+    
+    elif "t_" in col: 
+        train_data["total logins duration"] += train_data[col]
+        test_data["total logins duration"] += test_data[col]
+
+train_data = train_data[train_data["total logins"] != 0]
+test_data = test_data[test_data["total logins"] != 0]
+
+
+
 train = []
 
 label1 = train_data[train_data['label'] == 1] # small business owner
@@ -32,16 +60,26 @@ label0 = train_data[train_data['label'] == 0] # Non-small business owner
 print("Number of small business owners: ", len(label1))
 print("Number of Non-small business owners: ", len(label0))
 
-loc = 0
-for i in range(14):
-    if i != 13:
-        label0_ = label0[loc:loc + label1.shape[0]]
-        loc += label1.shape[0]
-        train.append(pd.concat([label1, label0_]))
-    else:
-        label0_ = label0[loc:]
-        loc += label1.shape[0]
-        train.append(pd.concat([label1, label0_]))
+# loc = 0
+# for i in range(14):
+#     if i != 13:
+#         label0_ = label0[loc:loc + label1.shape[0]]
+#         loc += label1.shape[0]
+#         train.append(pd.concat([label1, label0_]))
+#     else:
+#         label0_ = label0[loc:]
+#         loc += label1.shape[0]
+#         train.append(pd.concat([label1, label0_]))
+
+n = 5
+train = label0.sample(47085 * n)
+
+for i in range(1):
+    train = pd.concat([train, label1])
+
+del label1
+del label0
+del train_data
 
 
 # Random Forest
@@ -162,10 +200,11 @@ def NeuralNet(train_data, test_data, out_file):
 
     # Create the model
     model = Sequential()
-    model.add(Dense(128, input_dim=X_train.shape[1], activation='gelu'))
-    model.add(Dense(64, activation='gelu'))
-    model.add(Dense(32, activation='gelu'))
-    model.add(Dense(16, activation='gelu'))
+    model.add(Dense(128, input_dim=X_train.shape[1], activation='relu'))
+    model.add(Dropout(0.3))
+    model.add(Dense(64, activation='relu'))
+    model.add(Dense(32, activation='relu'))
+    model.add(Dense(16, activation='relu'))
     model.add(Dense(1, activation='sigmoid'))
 
 
@@ -174,21 +213,22 @@ def NeuralNet(train_data, test_data, out_file):
     WEIGHT_DECAY = 0.0001
     NUM_EPOCHS = 1000
 
-    optimizer = tfa.optimizers.AdamW(
-        learning_rate=LEARNING_RATE, weight_decay=WEIGHT_DECAY
-    )
+    # optimizer = tfa.optimizers.AdamW(
+    #     learning_rate=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+    # )
 
+    optimizer = Adam(learning_rate=LEARNING_RATE)
 
     # Compile the model
     model.compile(
         optimizer=optimizer,
         loss=tf.keras.losses.BinaryCrossentropy(),
-        metrics=[tf.keras.metrics.AUC(name="PR AUC", curve='PR')],
+        metrics=[tf.keras.metrics.AUC(name="AUC"), tf.keras.metrics.BinaryAccuracy(name="Accuracy")],
     )
     checkpoint = ModelCheckpoint(
-        out_file, monitor="val_PR AUC", verbose=1, save_best_only=True, mode="max"
+        out_file, monitor="val_AUC", verbose=1, save_best_only=True, mode="max"
     )
-    early = tf.keras.callbacks.EarlyStopping(monitor="val_PR AUC", mode="max", patience=10, restore_best_weights=True)
+    early = tf.keras.callbacks.EarlyStopping(monitor="val_AUC", mode="max", patience=20, restore_best_weights=True)
     callback_list = [checkpoint, early]
 
     # Fit the model
@@ -202,11 +242,72 @@ def NeuralNet(train_data, test_data, out_file):
     return model
 
 
+def CNN_1D(train_data, test_data, out_file):
+    # Split the data
+    train_data = shuffle(train_data)
+    X_train = train_data.drop(['label'], axis=1)
+    y_train = train_data['label']
+    X_test = test_data.drop(['label'], axis=1)
+    y_test = test_data['label']
+
+    # Scale the data
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
+    # Create the model
+    model = Sequential()
+    model.add(Conv1D(filters=64, kernel_size=2, activation='selu', input_shape=(X_train.shape[1], 1)))
+    model.add(MaxPooling1D(pool_size=2))
+    model.add(Conv1D(filters=32, kernel_size=2, activation='gelu'))
+    model.add(AveragePooling1D(pool_size=2))
+    model.add(Conv1D(filters=16, kernel_size=2, activation='gelu'))
+    model.add(MaxPooling1D(pool_size=2))
+    model.add(Flatten())
+    # model.add(BatchNormalization())
+    model.add(Dense(50, activation='relu'))
+    # model.add(BatchNormalization())
+    # model.add(Dense(16, activation="relu"))
+    model.add(Dense(1, activation='sigmoid'))
+
+
+    # Compile model
+    LEARNING_RATE = 0.001
+    WEIGHT_DECAY = 0.0001
+    NUM_EPOCHS = 1000
+
+    # optimizer = tfa.optimizers.AdamW(
+    #     learning_rate=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+    # )
+
+    optimizer = Adam(learning_rate=LEARNING_RATE)
+
+    # Compile the model
+    model.compile(
+        optimizer=optimizer,
+        loss=tf.keras.losses.BinaryCrossentropy(),
+        metrics=[tf.keras.metrics.AUC(name="AUC")],
+    )
+    checkpoint = ModelCheckpoint(
+        out_file, monitor="val_AUC", verbose=1, save_best_only=True, mode="max"
+    )
+    early = tf.keras.callbacks.EarlyStopping(monitor="val_AUC", mode="max", patience=10, restore_best_weights=True)
+    callback_list = [checkpoint, early]
+
+    # Fit the model
+    print(model.summary())
+    model.fit(X_train, y_train, epochs=NUM_EPOCHS, batch_size=16, callbacks=callback_list, validation_data=(X_test, y_test))
+
+    # Predict the test data
+    y_pred = model.predict(X_test).flatten()
+
+    print(f"PR AUC: {average_precision_score(y_test, y_pred.ravel())}")
+    print(f"ROC AUC: {roc_auc_score(y_test, y_pred.ravel())}")
+    return model
 
 
 
 if __name__ == "__main__":
-    model_num = 1
-    for data in train:
-        NeuralNetCls = NeuralNet(data, test_data, f"./models/model{model_num}")
-        model_num += 1
+    # for data in train:
+    NeuralNetCls = CNN_1D(train, test_data, f"./models_!D_CNN/CNN_5_1_with_extra_features/")
+    
