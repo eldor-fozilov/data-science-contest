@@ -10,7 +10,7 @@ For Taks 1, to reduce number of parameters that need to be trained, we transform
 
 For Task 2, we algorithmically chose the optimal threshold for classifying business owners and we decided to showed a pop-up to all business owners chosen based on that threshold.
 
-For Task 3, we kept daily login data and used two seasonal ARIMA models with frequencies of 7 (weekly) and 30 (monthly), and then took their maximum prediction for the future 5 days (we say that he or she is predicted to login if the maximum prediction is more than or equal to 1 for one of the following 5 days). We decided to show a survey ad if a person is classified as a small business onwer and he or she is predicted to login between August 27-31.
+For Task 3, we kept daily login data and used two seasonal ARIMA models with frequencies of 7 (weekly) and 30 (monthly), and then we decided that a person is predicted to login if any of the predictions of the models for the following 5 days is more than or equal to 1). Then, we decided to show a survey ad if a person is classified as a small business onwer and he or she is predicted to login between August 27-31.
 
 To see the details of our solution, please take a look at the code files.
 
